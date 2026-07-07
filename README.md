@@ -79,3 +79,73 @@
       - несмотря на более высокий порог вхождения по сравнению с RabbitMQ, зрелая экосистема (Kafka Connect, Schema Registry, managed-предложения вроде Confluent Cloud/MSK) компенсирует операционную сложность и снижает эксплуатационные риски в долгосрочной перспективе.
 
 ---
+
+## Задача 3: API Gateway* (практическая реализация)
+
+[`docker-compose-стек`](API-Gateway/docker-compose.yml):
+
+- **`gateway`** — `nginx:1.27-alpine` с конфигом[`nginx.conf`](API-Gateway/gateway/nginx.conf) , реализующим маршрутизацию и проверку токена через `auth_request`;
+- **`security`** — сервис на Flask [`security/app.py`](API-Gateway/security/app.py), реализующий регистрацию, выдачу JWT-токена и его валидацию;
+- **`uploader`** — сервис на Flask + Pillow + boto3 [`uploader/app.py`](API-Gateway/uploader/app.py), сжимающий загруженное изображение и кладущий его в MinIO по S3-протоколу;
+- **`minio`** / **`minio-init`** — официальный образ `minio/minio`, бакет `images` создаётся автоматически при старте и делается публично читаемым (`mc anonymous set public`), чтобы шлюз мог отдавать файлы напрямую, не подписывая S3-запросы в NGINX.
+
+>`security` и `uploader` собираются локально через `docker-compose build` из приложенных Dockerfile'ов:
+>[`security/Dockerfile`](API-Gateway/security/Dockerfile)
+>[`uploader/Dockerfile`](API-Gateway/uploader/Dockerfile)
+
+### Логика шлюза
+
+| Внешний маршрут | Доступ | Проверка токена | Куда проксируется |
+|---|---|---|---|
+| `POST /register` | анонимный | нет | `security: POST /v1/user` |
+| `POST /token` | анонимный | нет | `security: POST /v1/token` |
+| `GET /user` | по токену | `security: GET /v1/token/validation/` | `security: GET /v1/user` |
+| `POST /upload` | по токену | `security: GET /v1/token/validation/` | `uploader: POST /v1/upload` |
+| `GET /images/{file}` | по токену | `security: GET /v1/token/validation/` | `minio: GET /images/{file}` (bucket `images`) |
+
+Проверка токена реализована через встроенный модуль NGINX `auth_request`: для защищённых маршрутов NGINX выполняет внутренний подзапрос к `security`, пробрасывая заголовок `Authorization`, и пропускает основной запрос дальше только если подзапрос вернул `2xx`.
+
+
+### Запуск и проверка
+
+```bash
+docker compose up --build -d
+```
+
+Регистрация пользователя:
+```bash
+curl -i -X POST -H 'Content-Type: application/json' \
+  -d '{"login":"bob", "password":"qwe123"}' \
+  http://localhost/register
+```
+
+Получение токена:
+```bash
+TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"login":"bob", "password":"qwe123"}' \
+  http://localhost/token | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+```
+
+Получение информации о пользователе:
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost/user
+```
+
+Загрузка файла:
+```bash
+curl -i -X POST -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: octet/stream' \
+  --data-binary @yourfilename.jpg \
+  http://localhost/upload
+# ответ: {"file": "<uuid>.jpg"}
+```
+
+Получение файла:
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost/images/<uuid>.jpg -o downloaded.jpg
+```
+
+![alt text](images/task3.png)
+
+---
