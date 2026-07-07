@@ -89,9 +89,8 @@
 - **`uploader`** — сервис на Flask + Pillow + boto3 [`uploader/app.py`](API-Gateway/uploader/app.py), сжимающий загруженное изображение и кладущий его в MinIO по S3-протоколу;
 - **`minio`** / **`minio-init`** — официальный образ `minio/minio`, бакет `images` создаётся автоматически при старте и делается публично читаемым (`mc anonymous set public`), чтобы шлюз мог отдавать файлы напрямую, не подписывая S3-запросы в NGINX.
 
->`security` и `uploader` собираются локально через `docker-compose build` из приложенных Dockerfile'ов:
->[`security/Dockerfile`](API-Gateway/security/Dockerfile)
->[`uploader/Dockerfile`](API-Gateway/uploader/Dockerfile)
+>`security` и `uploader` собираются локально через `docker-compose build` из приложенных Dockerfile'ов.
+
 
 ### Логика шлюза
 
