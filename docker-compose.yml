@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - security
+      - uploader
+      - minio
+    networks:
+      - backend
+
+  # ЗАМЕНИТЕ на образ/Dockerfile сервиса security из материалов занятия.
+  security:
+    build: ./security
+    environment:
+      - PORT=8000
+    networks:
+      - backend
+
+  # ЗАМЕНИТЕ на образ/Dockerfile сервиса uploader из материалов занятия.
+  uploader:
+    build: ./uploader
+    environment:
+      - PORT=8000
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_BUCKET=images
+    depends_on:
+      - minio
+    networks:
+      - backend
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data:/data
+    networks:
+      - backend
+
+  # Создаёт bucket "images" при первом запуске, если он ещё не существует.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb -p local/images || true;
+      mc anonymous set public local/images;
+      "
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  minio-data:
